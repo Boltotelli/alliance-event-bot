@@ -50,7 +50,7 @@ async function getStatus(req:Request,alliance:string,staff:Staff,u:URL){
   checked<any>(db.from("aos_discord_bot_config").select("guild_id,channels").eq("alliance_code",alliance).maybeSingle()),
   checked<any[]>(db.from("aos_event_cycles").select("group_key,anchor_date,interval_days,duration_days,enabled")
    .eq("alliance_code",alliance).limit(400)),
-  checked<any[]>(db.from("aos_discord_message_rules").select("id,event_key,day_number,trigger_type,enabled,messages,mention_role")
+  checked<any[]>(db.from("aos_discord_message_rules").select("id,event_key,title,day_number,trigger_type,enabled,messages,mention_role")
    .eq("alliance_code",alliance).limit(2000)),
   checked<any[]>(db.from("aos_event_bot_outbox")
    .select("id,event_key,occurrence_date,event_day,language,scheduled_at,sent_at,channel_id,discord_message_id,status,attempts,error_code,error_detail")
@@ -76,6 +76,7 @@ async function getStatus(req:Request,alliance:string,staff:Staff,u:URL){
  .map(s=>[s,history.filter(j=>j.status===s).length]));
  return response(req,{ok:true,alliance,global,local:state,heartbeat:heart,connected,botProblem,
   config:config||{},preview,warnings:warn,counts,history:history.slice(0,150),
+  roleRules:rules.filter(r=>r.enabled).map(r=>({id:r.id,title:r.title,event_key:r.event_key,event_day:r.day_number,mention_role:r.mention_role})),
   canManage:can(staff,"settings"),canEvents:can(staff,"events"),isOwner:staff.is_owner});
 }
 async function sendTest(req:Request,alliance:string,lang:string){
@@ -136,6 +137,16 @@ Deno.serve(async(req:Request)=>{
     .eq("alliance_code",alliance).select("id,mention_role").maybeSingle());
    if(!rule)throw new HttpError("rule_not_found",404);
    return response(req,{ok:true,rule});
+  }
+  if(body.action==="set_global_mentions"){
+   if(!staff.is_owner)throw new HttpError("permission_denied",403);
+   const global=await checked<any>(db.from("aos_event_bot_settings")
+    .select("production_approved").eq("id",1).single());
+   if(body.enabled===true&&!global.production_approved)throw new HttpError("production_approval_required",403);
+   const item=await checked(db.from("aos_event_bot_settings").update({
+    role_mentions_enabled:body.enabled===true,updated_at:new Date().toISOString()
+   }).eq("id",1).select("role_mentions_enabled").single());
+   return response(req,{ok:true,global:item});
   }
   if(body.action==="set_alliance_mentions"){
    if(!can(staff,"settings"))throw new HttpError("permission_denied",403);
