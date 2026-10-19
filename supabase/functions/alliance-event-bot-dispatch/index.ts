@@ -70,12 +70,45 @@ async function dispatch(job:Job,token:string){
  // Authentication, permissions, deleted channel, bad payload: permanent failure.
  await final(job,"failed",null,"discord_http_"+response.status,body.slice(0,280));return "failed";
 }
+// Read-only connectivity probe. Never sends a Discord message or changes send gates.
+async function diagnoseConnection(){
+ const token=Deno.env.get("ALLIANCE_EVENT_DISCORD_TOKEN")?.trim();
+ if(!token)return {ok:false,code:"discord_token_missing"};
+ const headers={authorization:"Bot "+token};
+ let botResponse:Response;
+ try{botResponse=await fetch("https://discord.com/api/v10/users/@me",{headers,signal:AbortSignal.timeout(7000)});}
+ catch{return {ok:false,code:"discord_api_unreachable"};}
+ if(!botResponse.ok)return {ok:false,code:"discord_auth_http_"+botResponse.status};
+ const bot=await botResponse.json().catch(()=>null);
+ if(!bot?.id||!bot?.bot)return {ok:false,code:"discord_bot_identity_invalid"};
+ const configs=await checked<any[]>(db.from("aos_discord_bot_config").select("alliance_code,guild_id,channels"));
+ const alliances=[];
+ for(const config of configs){
+   const channels:Record<string,unknown>={};
+   for(const lang of ["de","en","fr"]){
+     const id=config.channels?.[lang];
+     if(typeof id!=="string"||!/^[0-9]{17,20}$/.test(id)){
+       channels[lang]={ok:false,code:"not_configured"};continue;
+     }
+     try{
+       const reply=await fetch("https://discord.com/api/v10/channels/"+id,{headers,signal:AbortSignal.timeout(7000)});
+       if(!reply.ok){channels[lang]={ok:false,code:"discord_http_"+reply.status};continue;}
+       const obj=await reply.json().catch(()=>null);
+       channels[lang]={ok:obj?.guild_id===config.guild_id,code:obj?.guild_id===config.guild_id?"channel_accessible":"guild_mismatch"};
+     }catch{channels[lang]={ok:false,code:"discord_api_unreachable"};}
+   }
+   alliances.push({alliance:config.alliance_code,configured:!!config.guild_id,channels});
+ }
+ return {ok:true,bot:{id:String(bot.id),username:String(bot.username||"")},alliances,notes:"Channel access confirms readability, not Send Messages permission."};
+}
 Deno.serve(async(req:Request)=>{
  if(req.method!=="POST")return json({error:"method_not_allowed"},405);
  try{
   const provided=req.headers.get("x-alliance-event-key")||"";
   const settings=await checked<any>(db.from("aos_event_bot_settings").select("scheduler_key,sending_enabled,production_approved").eq("id",1).single());
   if(!provided||provided!==settings.scheduler_key)return json({error:"unauthorized"},401);
+  const body=await req.json().catch(()=>({}));
+  if(body?.action==="diagnose")return json(await diagnoseConnection());
   const cycles=await checked<number>(db.rpc("aos_event_bot_refresh"));
   const manuals=await checked<number>(db.rpc("aos_event_bot_refresh_manual"));
   const n=cycles+manuals;
