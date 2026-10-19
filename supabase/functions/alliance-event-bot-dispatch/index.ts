@@ -82,6 +82,21 @@ async function diagnoseConnection(){
  const bot=await botResponse.json().catch(()=>null);
  if(!bot?.id||!bot?.bot)return {ok:false,code:"discord_bot_identity_invalid"};
  const configs=await checked<any[]>(db.from("aos_discord_bot_config").select("alliance_code,guild_id,channels"));
+ const configuredRoleMentions:Record<string,unknown>={};
+ for(const cfg of configs){
+  try{
+   const [rs,onboarding]=await Promise.all([
+    fetch("https://discord.com/api/v10/guilds/"+cfg.guild_id+"/roles",{headers,signal:AbortSignal.timeout(7000)}),
+    checked<any>(db.from("alliance_discord_config").select("language_role_ids").eq("alliance_code",cfg.alliance_code).eq("guild_id",cfg.guild_id).eq("active",true).maybeSingle())
+   ]);
+   const roles=rs.ok?await rs.json().catch(()=>[]):[];
+   configuredRoleMentions[cfg.alliance_code]={http_status:rs.status,roles:Object.fromEntries(["de","en","fr","es"].map(lang=>{
+    const id=onboarding?.language_role_ids?.[lang];
+    const x=Array.isArray(roles)?roles.find((x:any)=>x.id===id):undefined;
+    return [lang,{configured:!!id,exists:!!x,mentionable:!!x?.mentionable,name:x?.name||null}];
+   }))};
+  }catch{configuredRoleMentions[cfg.alliance_code]={error:"roles_unavailable"};}
+ }
  const allGuildChannels:Record<string,unknown>={};
  for(const c of configs){
   if(!c.guild_id||allGuildChannels[c.guild_id])continue;
@@ -94,7 +109,7 @@ async function diagnoseConnection(){
  const alliances=[];
  for(const config of configs){
    const channels:Record<string,unknown>={};
-   for(const lang of ["de","en","fr"]){
+   for(const lang of ["de","en","fr","es"]){
      const id=config.channels?.[lang];
      if(typeof id!=="string"||!/^[0-9]{17,20}$/.test(id)){
        channels[lang]={ok:false,code:"not_configured"};continue;
@@ -108,7 +123,7 @@ async function diagnoseConnection(){
    }
    alliances.push({alliance:config.alliance_code,configured:!!config.guild_id,channels});
  }
- return {ok:true,bot:{id:String(bot.id),username:String(bot.username||"")},alliances,allGuildChannels,notes:"Channel access confirms readability, not Send Messages permission."};
+ return {ok:true,bot:{id:String(bot.id),username:String(bot.username||"")},alliances,allGuildChannels,configuredRoleMentions,notes:"Channel access confirms readability, not Send Messages permission."};
 }
 Deno.serve(async(req:Request)=>{
  if(req.method!=="POST")return json({error:"method_not_allowed"},405);
