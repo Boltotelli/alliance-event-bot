@@ -34,12 +34,12 @@ BEGIN
  THEN RAISE EXCEPTION 'claimed a message while globally disabled';END IF;
 END $assert$;
 SELECT public.aos_event_bot_refresh() AS idempotent_cycle_jobs;
-DO $assert$ DECLARE n int;BEGIN
+DO $assert$ DECLARE n int;anchor date:=(now() at time zone 'UTC')::date+5;BEGIN
  SELECT count(*) INTO n FROM public.aos_event_bot_outbox
- WHERE rule_id='00000000-0000-4000-8000-000000000011';
+ WHERE rule_id='00000000-0000-4000-8000-000000000011' AND occurrence_date=anchor;
  IF n<>3 THEN RAISE EXCEPTION 'duplicate run: %',n;END IF;END $assert$;
 UPDATE public.aos_event_bot_outbox SET status='sent',discord_message_id='fixture-sent'
-WHERE rule_id='00000000-0000-4000-8000-000000000011' AND language='de';
+WHERE rule_id='00000000-0000-4000-8000-000000000011' AND language='de' AND occurrence_date=(now() at time zone 'UTC')::date+5;
 UPDATE public.aos_discord_event_day_times SET start_time_utc='01:00'
 WHERE alliance_code='NRW' AND event_key='fixture-calendar' AND day_number=3;
 SELECT public.aos_event_bot_refresh() AS rescheduled_jobs;
@@ -57,12 +57,12 @@ DO $assert$ DECLARE old_due timestamptz; new_due timestamptz;anchor date:=(now()
 END $assert$;
 UPDATE public.aos_discord_message_rules SET enabled=false WHERE id='00000000-0000-4000-8000-000000000011';
 SELECT public.aos_event_bot_refresh() AS cancelled_jobs;
-DO $assert$ DECLARE n int;BEGIN
+DO $assert$ DECLARE n int;anchor date:=(now() at time zone 'UTC')::date+5;BEGIN
  SELECT count(*) INTO n FROM public.aos_event_bot_outbox
- WHERE rule_id='00000000-0000-4000-8000-000000000011' AND status='cancelled';
+ WHERE rule_id='00000000-0000-4000-8000-000000000011' AND occurrence_date=anchor AND status='cancelled';
  IF n<>2 THEN RAISE EXCEPTION 'cancel disabled pending records: %',n;END IF;
  IF NOT EXISTS(SELECT 1 FROM public.aos_event_bot_outbox WHERE
-  rule_id='00000000-0000-4000-8000-000000000011' AND language='de' AND status='sent')
+  rule_id='00000000-0000-4000-8000-000000000011' AND occurrence_date=anchor AND language='de' AND status='sent')
  THEN RAISE EXCEPTION 'previously sent message modified';END IF;
 END $assert$;
 INSERT INTO public.aos_events(id,alliance_code,title,start_at,end_at,status)
