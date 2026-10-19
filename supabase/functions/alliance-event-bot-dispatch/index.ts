@@ -82,6 +82,15 @@ async function diagnoseConnection(){
  const bot=await botResponse.json().catch(()=>null);
  if(!bot?.id||!bot?.bot)return {ok:false,code:"discord_bot_identity_invalid"};
  const configs=await checked<any[]>(db.from("aos_discord_bot_config").select("alliance_code,guild_id,channels"));
+ const allGuildChannels:Record<string,unknown>={};
+ for(const c of configs){
+  if(!c.guild_id||allGuildChannels[c.guild_id])continue;
+  try{
+   const ch=await fetch("https://discord.com/api/v10/guilds/"+c.guild_id+"/channels",{headers,signal:AbortSignal.timeout(8000)});
+   const rows=ch.ok?await ch.json().catch(()=>[]):[];
+   allGuildChannels[c.guild_id]={status:ch.status,channels:Array.isArray(rows)?rows.filter((x:any)=>[0,5].includes(x.type)).map((x:any)=>({id:x.id,name:x.name,type:x.type})).slice(0,100):[]};
+  }catch{allGuildChannels[c.guild_id]={status:0,channels:[]};}
+ }
  const alliances=[];
  for(const config of configs){
    const channels:Record<string,unknown>={};
@@ -99,7 +108,7 @@ async function diagnoseConnection(){
    }
    alliances.push({alliance:config.alliance_code,configured:!!config.guild_id,channels});
  }
- return {ok:true,bot:{id:String(bot.id),username:String(bot.username||"")},alliances,notes:"Channel access confirms readability, not Send Messages permission."};
+ return {ok:true,bot:{id:String(bot.id),username:String(bot.username||"")},alliances,allGuildChannels,notes:"Channel access confirms readability, not Send Messages permission."};
 }
 Deno.serve(async(req:Request)=>{
  if(req.method!=="POST")return json({error:"method_not_allowed"},405);
