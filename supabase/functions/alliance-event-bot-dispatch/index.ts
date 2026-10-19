@@ -24,7 +24,19 @@ async function dispatch(job:Job,token:string){
  try{details=await fetch("https://discord.com/api/v10/channels/"+job.channel_id,{
   headers:{authorization:"Bot "+token},signal:AbortSignal.timeout(9000)
  })}catch(e){await final(job,"failed",null,"channel_check_unavailable",String(e),30);return "retry";}
- if(!details.ok){await final(job,"failed",null,"channel_check_http_"+details.status);return "failed";}
+ if(!details.ok){
+  if(details.status===429||details.status>=500){
+   let retry=30;
+   if(details.status===429){
+    const data=await details.json().catch(()=>({}));
+    const retryAfter=Number(data?.retry_after||details.headers.get("retry-after")||10);
+    retry=Number.isFinite(retryAfter)?Math.max(5,Math.ceil(retryAfter)+1):30;
+   }
+   await final(job,"failed",null,"channel_check_http_"+details.status,"retry channel validation",retry);
+   return "retry";
+  }
+  await final(job,"failed",null,"channel_check_http_"+details.status);return "failed";
+ }
  const destination=await details.json().catch(()=>null);
  if(!guild?.guild_id || destination?.guild_id!==guild.guild_id){
    await final(job,"failed",null,"discord_guild_mismatch");return "failed";
