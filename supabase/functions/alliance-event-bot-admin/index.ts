@@ -41,27 +41,34 @@ async function authorize(req:Request,alliance:string):Promise<Staff>{
 const can=(staff:Staff,perm:string)=>staff.is_owner||staff.permissions?.[perm]===true;
 const validId=(s:unknown)=>typeof s==="string"&&/^[0-9]{17,20}$/.test(s);
 async function getStatus(req:Request,alliance:string,staff:Staff,u:URL){
- const [global,local,heart,config,cycles,rules,history]=await Promise.all([
+ const [global,local,heart,config,cycles,manualEvents,rules,history,nextJobs]=await Promise.all([
   checked<any>(db.from("aos_event_bot_settings")
    .select("sending_enabled,production_approved,role_mentions_enabled").eq("id",1).single()),
   checked<any>(db.from("aos_event_bot_alliance_state")
    .select("sending_enabled,role_mentions_enabled").eq("alliance_code",alliance).maybeSingle()),
   checked<any>(db.from("aos_event_bot_heartbeat").select("*").eq("id",1).maybeSingle()),
   checked<any>(db.from("aos_discord_bot_config").select("guild_id,channels").eq("alliance_code",alliance).maybeSingle()),
-  checked<any[]>(db.from("aos_event_cycles").select("group_key,anchor_date,interval_days,duration_days,enabled")
+  checked<any[]>(db.from("aos_event_cycles").select("group_key,anchor_date,interval_days,duration_days,enabled,override_schedule")
    .eq("alliance_code",alliance).limit(400)),
+  checked<any[]>(db.from("aos_events").select("id,status").eq("alliance_code",alliance)
+   .eq("status","published").limit(300)),
   checked<any[]>(db.from("aos_discord_message_rules").select("id,event_key,title,day_number,trigger_type,enabled,messages,mention_role")
    .eq("alliance_code",alliance).limit(2000)),
   checked<any[]>(db.from("aos_event_bot_outbox")
-   .select("id,event_key,occurrence_date,event_day,language,scheduled_at,sent_at,channel_id,discord_message_id,status,attempts,error_code,error_detail")
-   .eq("alliance_code",alliance).order("scheduled_at",{ascending:false}).limit(500))
+   .select("id,rule_id,event_key,occurrence_date,event_day,language,scheduled_at,sent_at,channel_id,discord_message_id,status,attempts,error_code,error_detail")
+   .eq("alliance_code",alliance).order("scheduled_at",{ascending:false}).limit(500)),
+  checked<any[]>(db.from("aos_event_bot_outbox")
+   .select("id,rule_id,event_key,occurrence_date,event_day,language,scheduled_at,sent_at,channel_id,discord_message_id,status,attempts,error_code,error_detail")
+   .eq("alliance_code",alliance)
+   .gte("scheduled_at",new Date(Date.now()-10*60000).toISOString())
+   .order("scheduled_at",{ascending:true}).limit(350))
  ]);
  const state=local||{sending_enabled:false,role_mentions_enabled:false};
  const active=rules.filter(r=>r.enabled);
- const preview=history.filter(x=>new Date(x.scheduled_at)>=new Date(Date.now()-600000))
-  .sort((a,b)=>a.scheduled_at.localeCompare(b.scheduled_at)).slice(0,300);
- const cycleNames=new Set(cycles.filter(c=>c.enabled).map(c=>c.group_key));
- const warn=active.filter(r=>!cycleNames.has(r.event_key)||!preview.some(p=>p.event_key===r.event_key&&p.event_day===r.day_number))
+ const preview=nextJobs.slice(0,350);
+ const cycleNames=new Set(cycles.filter(c=>c.enabled&&c.override_schedule===true).map(c=>c.group_key));
+ for(const e of manualEvents)cycleNames.add("custom-"+e.id);
+ const warn=active.filter(r=>!cycleNames.has(r.event_key)||!preview.some(p=>p.rule_id===r.id&&p.status!=="cancelled"))
   .map(r=>({id:r.id,event_key:r.event_key,event_day:r.day_number,
    reason:!cycleNames.has(r.event_key)?"Kein bestätigter Eventdurchlauf gespeichert":"Nicht planbar – Eventdatum oder Uhrzeit fehlt."}));
  const token=Deno.env.get("ALLIANCE_EVENT_DISCORD_TOKEN");
