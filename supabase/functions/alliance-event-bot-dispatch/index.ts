@@ -64,7 +64,9 @@ Deno.serve(async(req:Request)=>{
   const provided=req.headers.get("x-alliance-event-key")||"";
   const settings=await checked<any>(db.from("aos_event_bot_settings").select("scheduler_key,sending_enabled,production_approved").eq("id",1).single());
   if(!provided||provided!==settings.scheduler_key)return json({error:"unauthorized"},401);
-  const n=await checked<number>(db.rpc("aos_event_bot_refresh"));
+  const cycles=await checked<number>(db.rpc("aos_event_bot_refresh"));
+  const manuals=await checked<number>(db.rpc("aos_event_bot_refresh_manual"));
+  const n=cycles+manuals;
   await checked(db.from("aos_event_bot_heartbeat").update({
    last_check:new Date().toISOString(),last_success:new Date().toISOString(),
    last_error:null,dispatcher_version:version,updated_at:new Date().toISOString()
