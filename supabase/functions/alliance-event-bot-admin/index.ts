@@ -87,7 +87,7 @@ async function getStatus(req:Request,alliance:string,staff:Staff,u:URL){
   canManage:can(staff,"event_bot"),canEvents:can(staff,"event_bot"),isOwner:staff.is_owner});
 }
 async function sendTest(req:Request,alliance:string,lang:string){
- if(!["de","en","fr"].includes(lang))throw new HttpError("invalid_language");
+ if(!["de","en","fr","es"].includes(lang))throw new HttpError("invalid_language");
  const config=await checked<any>(db.from("aos_discord_bot_config").select("guild_id,channels")
   .eq("alliance_code",alliance).maybeSingle());
  const channel=config?.channels?.[lang];
@@ -101,7 +101,8 @@ async function sendTest(req:Request,alliance:string,lang:string){
  if(ch.guild_id!==config.guild_id)throw new HttpError("discord_guild_mismatch");
  const localized:any={de:"Dies ist eine Testnachricht des AllianceOS Event-Bots. Kein geplanter Eventversand.",
  en:"This is an AllianceOS Event Bot test message. It is not a scheduled event announcement.",
- fr:"Ceci est un message de test du bot événementiel AllianceOS. Ce n'est pas une annonce programmée."};
+ fr:"Ceci est un message de test du bot événementiel AllianceOS. Ce n'est pas une annonce programmée.",
+ es:"Este es un mensaje de prueba del bot de eventos de AllianceOS. No es un anuncio programado."};
  const sent=await fetch("https://discord.com/api/v10/channels/"+channel+"/messages",{
   method:"POST",headers:{authorization:"Bot "+token,"content-type":"application/json"},
   body:JSON.stringify({content:"🧪 [AllianceOS TEST]\n"+localized[lang],allowed_mentions:{parse:[]}}),
