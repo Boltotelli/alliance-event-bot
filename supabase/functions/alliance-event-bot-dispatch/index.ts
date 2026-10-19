@@ -17,6 +17,18 @@ async function dispatch(job:Job,token:string){
  // No @everyone, @here, arbitrary user or arbitrary role pings.
  const content=(role?"<@&"+role+">\n":"")+job.content;
  if(content.length>2000){await final(job,"failed",null,"content_too_long","Discord limit is 2000 characters");return "failed";}
+ // Verify that the configured destination is actually in the selected Discord guild.
+ const guild=await checked<any>(db.from("aos_discord_bot_config")
+   .select("guild_id").eq("alliance_code",job.alliance_code).maybeSingle());
+ let details:Response;
+ try{details=await fetch("https://discord.com/api/v10/channels/"+job.channel_id,{
+  headers:{authorization:"Bot "+token},signal:AbortSignal.timeout(9000)
+ })}catch(e){await final(job,"failed",null,"channel_check_unavailable",String(e),30);return "retry";}
+ if(!details.ok){await final(job,"failed",null,"channel_check_http_"+details.status);return "failed";}
+ const destination=await details.json().catch(()=>null);
+ if(!guild?.guild_id || destination?.guild_id!==guild.guild_id){
+   await final(job,"failed",null,"discord_guild_mismatch");return "failed";
+ }
  const payload={content,nonce:job.id.replace(/-/g,"").slice(0,24),enforce_nonce:true,
   allowed_mentions:role?{roles:[role],users:[],replied_user:false}:{parse:[]}};
  let response:Response;
@@ -50,14 +62,14 @@ Deno.serve(async(req:Request)=>{
  if(req.method!=="POST")return json({error:"method_not_allowed"},405);
  try{
   const provided=req.headers.get("x-alliance-event-key")||"";
-  const settings=await checked<any>(db.from("aos_event_bot_settings").select("scheduler_key,sending_enabled").eq("id",1).single());
+  const settings=await checked<any>(db.from("aos_event_bot_settings").select("scheduler_key,sending_enabled,production_approved").eq("id",1).single());
   if(!provided||provided!==settings.scheduler_key)return json({error:"unauthorized"},401);
   const n=await checked<number>(db.rpc("aos_event_bot_refresh"));
   await checked(db.from("aos_event_bot_heartbeat").update({
    last_check:new Date().toISOString(),last_success:new Date().toISOString(),
    last_error:null,dispatcher_version:version,updated_at:new Date().toISOString()
   }).eq("id",1));
-  if(!settings.sending_enabled)return json({ok:true,version,refreshed:n,delivery:"globally_disabled"});
+  if(!settings.sending_enabled||!settings.production_approved)return json({ok:true,version,refreshed:n,delivery:"globally_disabled_or_unapproved"});
   const token=Deno.env.get("ALLIANCE_EVENT_DISCORD_TOKEN");
   if(!token){
    await checked(db.from("aos_event_bot_heartbeat").update({last_error:"discord_token_not_configured"}).eq("id",1));
