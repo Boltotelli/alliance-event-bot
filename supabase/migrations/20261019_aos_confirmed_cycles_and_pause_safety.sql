@@ -99,4 +99,4 @@ begin
     where gs.id=1 and gs.sending_enabled and gs.production_approved and st.sending_enabled
    );
  return v_count;
-end $;
+end $$;
