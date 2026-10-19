@@ -34,7 +34,7 @@ async function authorize(req:Request,alliance:string):Promise<Staff>{
    if(!member?.active||![4,5].includes(Number(member.alliance_rank)))throw new HttpError("leader_no_longer_active",403);
    staff.rank="R"+member.alliance_rank;
  }
- if(!staff.is_owner&&!staff.permissions?.events&&!staff.permissions?.settings)
+ if(!staff.is_owner&&!staff.permissions?.event_bot)
   throw new HttpError("permission_denied",403);
  return staff;
 }
@@ -84,7 +84,7 @@ async function getStatus(req:Request,alliance:string,staff:Staff,u:URL){
  return response(req,{ok:true,alliance,global,local:state,heartbeat:heart,connected,botProblem,
   config:config||{},preview,warnings:warn,counts,history:history.slice(0,150),
   roleRules:rules.filter(r=>r.enabled).map(r=>({id:r.id,title:r.title,event_key:r.event_key,event_day:r.day_number,mention_role:r.mention_role})),
-  canManage:can(staff,"settings"),canEvents:can(staff,"events"),isOwner:staff.is_owner});
+  canManage:can(staff,"event_bot"),canEvents:can(staff,"event_bot"),isOwner:staff.is_owner});
 }
 async function sendTest(req:Request,alliance:string,lang:string){
  if(!["de","en","fr"].includes(lang))throw new HttpError("invalid_language");
@@ -121,11 +121,11 @@ Deno.serve(async(req:Request)=>{
   if(req.method==="GET")return await getStatus(req,alliance,staff,u);
   const body=await req.json().catch(()=>{throw new HttpError("invalid_json")});
   if(body.action==="test"){
-   if(!can(staff,"settings"))throw new HttpError("permission_denied",403);
+   if(!can(staff,"event_bot"))throw new HttpError("permission_denied",403);
    return response(req,{ok:true,...await sendTest(req,alliance,body.language)});
   }
   if(body.action==="set_alliance"){
-   if(!can(staff,"settings"))throw new HttpError("permission_denied",403);
+   if(!can(staff,"event_bot"))throw new HttpError("permission_denied",403);
    const item=await checked(db.from("aos_event_bot_alliance_state").upsert({
     alliance_code:alliance,sending_enabled:body.enabled===true,updated_at:new Date().toISOString()
    },{onConflict:"alliance_code"}).select("sending_enabled").single());
@@ -137,7 +137,7 @@ Deno.serve(async(req:Request)=>{
    return response(req,{ok:true,paused:true});
   }
   if(body.action==="set_rule_mention"){
-   if(!can(staff,"events"))throw new HttpError("permission_denied",403);
+   if(!can(staff,"event_bot"))throw new HttpError("permission_denied",403);
    if(!/^[0-9a-f-]{36}$/i.test(body.rule_id||""))throw new HttpError("invalid_rule_id");
    const rule=await checked(db.from("aos_discord_message_rules")
     .update({mention_role:body.enabled===true}).eq("id",body.rule_id)
@@ -156,7 +156,7 @@ Deno.serve(async(req:Request)=>{
    return response(req,{ok:true,global:item});
   }
   if(body.action==="set_alliance_mentions"){
-   if(!can(staff,"settings"))throw new HttpError("permission_denied",403);
+   if(!can(staff,"event_bot"))throw new HttpError("permission_denied",403);
    const item=await checked(db.from("aos_event_bot_alliance_state").upsert({
      alliance_code:alliance,role_mentions_enabled:body.enabled===true,updated_at:new Date().toISOString()
    },{onConflict:"alliance_code"}).select("role_mentions_enabled").single());
