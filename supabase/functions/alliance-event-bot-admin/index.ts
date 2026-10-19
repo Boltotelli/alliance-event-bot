@@ -23,10 +23,10 @@ async function authorize(req:Request,alliance:string):Promise<Staff>{
  if(!token)throw new HttpError("authentication_required",401);
  const {data:{user},error}=await auth.auth.getUser(token);
  if(error||!user||user.is_anonymous)throw new HttpError("invalid_session",401);
- const staff=await checked<any>(db.from("aos_staff").select("rank,permissions,enabled")
+ const staff=await checked<any>(db.from("aos_staff").select("rank,permissions,enabled,is_admin")
  .eq("alliance_code",alliance).eq("user_id",user.id).maybeSingle());
  if(!staff?.enabled||!["R4","R5"].includes(staff.rank))throw new HttpError("not_authorized",403);
- staff.is_owner=staff.rank==="R5"&&user.email?.toLowerCase()==="admin@nap-tracker.invalid";
+ staff.is_owner=(staff.rank==="R5"&&user.email?.toLowerCase()==="admin@nap-tracker.invalid") || staff.is_admin===true;
  const match=/^leader-([0-9]{5,20})@accounts\.allianceos\.invalid$/i.exec(user.email||"");
  if(match){
    const member=await checked<any>(db.from("players").select("alliance_rank,active")
